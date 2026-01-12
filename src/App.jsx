@@ -6,6 +6,7 @@ import HandManager from './components/HandManager'
 import HandCursor from './components/HandCursor'
 import PortfolioPopup from './components/PortfolioPopup'
 import CameraError from './components/CameraError'
+import NavigationButtons from './components/NavigationButtons'
 import { useStore } from './store'
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
       <HUD />
       <HandManager />
       <HandCursor />
+      <NavigationButtons />
       <Canvas
         camera={{ position: [0, 0, 5], fov: 45 }}
         className="w-full h-full block"
