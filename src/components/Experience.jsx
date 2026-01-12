@@ -6,9 +6,9 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useStore } from '../store'
 import { HyperShapeMaterial } from '../materials/HyperShapeMaterial'
-import CyberTerminal from './CyberTerminal'
+import GamingSetupModel from './GamingSetupModel'
 import GalaxyEnvironment from './GalaxyEnvironment'
-import RobotModel from './RobotModel'
+import CustomModel from './CustomModel'
 import AIModel from './AIModel'
 
 // Helper component for carousel slide animation
@@ -155,11 +155,11 @@ export default function Experience() {
       <group ref={groupRef}>
         {/* CAROUSEL: All models rendered, positioned by ModelSlide */}
         <ModelSlide index={0} currentModel={currentModel}>
-          <CyberTerminal refContent={materialRef} />
+          <GamingSetupModel gesture={gesture} active={currentModel === 0} />
         </ModelSlide>
         
         <ModelSlide index={1} currentModel={currentModel}>
-          <RobotModel gesture={gesture} active={currentModel === 1} />
+          <CustomModel gesture={gesture} active={currentModel === 1} />
         </ModelSlide>
         
         <ModelSlide index={2} currentModel={currentModel}>
