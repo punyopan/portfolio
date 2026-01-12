@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-cyber-bg: #050510;
+  --color-cyber-cyan: #00f3ff;
+  --color-cyber-magenta: #ff00ff;
+  --color-cyber-glass: rgba(255, 255, 255, 0.05);
+  --color-cyber-glassBorder: rgba(255, 255, 255, 0.1);
+  
+  --font-mono: "Space Mono", monospace;
+  --font-sans: "Inter", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-cyber-bg);
+    color: white;
+    font-family: var(--font-sans);
+    overflow: hidden;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-cyber-glass backdrop-blur-xl border border-cyber-glassBorder rounded-lg shadow-lg;
+  }
+  
+  .text-neon-cyan {
+    @apply text-cyber-cyan;
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+  
+  .text-neon-magenta {
+    @apply text-cyber-magenta;
+    text-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-cyber-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-cyber-glassBorder);
+  border-radius: 9999px;
+}
