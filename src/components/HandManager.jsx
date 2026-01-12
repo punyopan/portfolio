@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Webcam from 'react-webcam'
 import { useStore } from '../store'
 
@@ -7,45 +7,49 @@ export default function HandManager() {
   const workerRef = useRef(null)
   const requestRef = useRef()
   const lastVideoTimeRef = useRef(-1)
+  const canvasRef = useRef(null)
+  
+  // Refs to replace window.* globals
+  const lastHandPosRef = useRef({ x: 0, y: 0 })
+  const lastSwipeTimeRef = useRef(0)
+  const lastXRef = useRef(null)
+  
+  const [isVideoReady, setIsVideoReady] = useState(false)
   
   const updateHand = useStore((state) => state.updateHand)
   const setHandPresent = useStore((state) => state.setHandPresent)
-
   const setSystemStatus = useStore((state) => state.setSystemStatus)
+  const debugMode = useStore((state) => state.debugMode)
 
   useEffect(() => {
     try {
-        // Initialize Classic Web Worker from public folder
-        // Uses local libs to avoid importScripts/module issues
-        workerRef.current = new Worker('/hand-worker.js')
+      workerRef.current = new Worker('/hand-worker.js')
+      
+      workerRef.current.onmessage = (e) => {
+        const { type, result, error } = e.data
         
-        workerRef.current.onmessage = (e) => {
-          const { type, result, error } = e.data
-          
-          if (type === 'ready') {
-            console.log('⚡ MediaPipe Worker Ready')
-            setSystemStatus('READY')
-            // Start the detection loop once ready
-            detectFrame()
-          } else if (type === 'result') {
-            handleResult(result)
-          } else if (type === 'error') {
-            console.error("Worker Error:", error)
-            setSystemStatus('ERROR', error)
-          }
+        if (type === 'ready') {
+          console.log('⚡ MediaPipe Worker Ready')
+          setSystemStatus('READY')
+          detectFrame()
+        } else if (type === 'result') {
+          handleResult(result)
+        } else if (type === 'error') {
+          console.error("Worker Error:", error)
+          setSystemStatus('ERROR', error)
         }
-        
-        workerRef.current.onerror = (e) => {
-            console.error("Worker failed to load:", e)
-            setSystemStatus('ERROR', "Worker Failed: " + e.message)
-        }
-        
-        // Start initialization
-        setSystemStatus('INITIALIZING')
-        workerRef.current.postMessage({ action: 'init' })
+      }
+      
+      workerRef.current.onerror = (e) => {
+        console.error("Worker failed to load:", e)
+        setSystemStatus('ERROR', "Worker Failed: " + e.message)
+      }
+      
+      setSystemStatus('INITIALIZING')
+      workerRef.current.postMessage({ action: 'init' })
 
     } catch (err) {
-        setSystemStatus('ERROR', "Initialization Failed: " + err.message)
+      setSystemStatus('ERROR', "Initialization Failed: " + err.message)
     }
 
     return () => {
@@ -54,144 +58,107 @@ export default function HandManager() {
     }
   }, [])
 
-  /* Improved loop to ensure video is ready */
   const detectFrame = () => {
     const webcam = webcamRef.current
     
-    // Check if webcam is fully ready
     if (webcam && webcam.video && webcam.video.readyState === 4) {
-       const video = webcam.video
-       
-       if (video.currentTime !== lastVideoTimeRef.current) {
-         lastVideoTimeRef.current = video.currentTime
-         
-         createImageBitmap(video).then(bitmap => {
-            if(workerRef.current) {
+      const video = webcam.video
+      
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        if (!isVideoReady) setIsVideoReady(true)
+
+        if (video.currentTime !== lastVideoTimeRef.current) {
+          lastVideoTimeRef.current = video.currentTime
+          
+          try {
+            createImageBitmap(video).then(bitmap => {
+              if (workerRef.current) {
                 workerRef.current.postMessage({ 
-                    action: 'detect', 
-                    payload: { image: bitmap, timestamp: performance.now() } 
+                  action: 'detect', 
+                  payload: { image: bitmap, timestamp: performance.now() } 
                 }, [bitmap]) 
-            }
-         }).catch(err => {
-             console.warn("Bitmap creation failed", err)
-         })
-       }
+              } else {
+                bitmap.close()
+              }
+            }).catch(() => {})
+          } catch (e) {}
+        }
+      }
     }
     
     requestRef.current = requestAnimationFrame(detectFrame)
   }
 
-  const canvasRef = useRef(null)
-  const debugMode = useStore((state) => state.debugMode)
+  const onUserMedia = () => {
+    console.log("📷 Webcam Stream Ready")
+    setIsVideoReady(true)
+  }
 
-  /* Gesture Detection Logic */
   const detectGestures = (landmarks) => {
-    // Finger indices: [Thumb, Index, Middle, Ring, Pinky]
-    // Tips: [4, 8, 12, 16, 20]
-    // PIPs (Knuckles): [2, 6, 10, 14, 18] - Approx for simpler logic, usually MCP is better base
-    // Use MCP for base comparison: [1, 5, 9, 13, 17]
-    
     const wrist = landmarks[0]
     const tips = [4, 8, 12, 16, 20]
-    const fingerBases = [1, 5, 9, 13, 17] // Thumb CMC, Index MCP, etc.
+    const fingerBases = [1, 5, 9, 13, 17]
     
-    // Check which fingers are extended
-    // Simple logic: Tip is further from wrist than Base
-    // Better logic: Tip is further from wrist than PIP/MCP in direction of finger
-    // We'll use distance to wrist as a proxy for simple detection
     const isExtended = tips.map((tipIdx, i) => {
-        const dTip = Math.hypot(landmarks[tipIdx].x - wrist.x, landmarks[tipIdx].y - wrist.y)
-        const dBase = Math.hypot(landmarks[fingerBases[i]].x - wrist.x, landmarks[fingerBases[i]].y - wrist.y)
-        // Heuristic: Extended if tip is significantly further than base
-        // Thumb is tricky, handled separately usually, but stick to simple
-        return dTip > (dBase * 1.5) // 1.5 multiplier rough heuristic
+      const dTip = Math.hypot(landmarks[tipIdx].x - wrist.x, landmarks[tipIdx].y - wrist.y)
+      const dBase = Math.hypot(landmarks[fingerBases[i]].x - wrist.x, landmarks[fingerBases[i]].y - wrist.y)
+      return dTip > (dBase * 1.5)
     })
     
-    // Distances
     const distThumbIndex = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y)
     
-    // 1. PINCH: Thumb + Index close, others extended or curled (doesn't matter much)
-    if (distThumbIndex < 0.05) {
-        return 'PINCH'
-    }
-    
-    // 2. FIST: All curled
+    if (distThumbIndex < 0.05) return 'PINCH'
     if (isExtended.every(e => !e)) return 'FIST'
-    
-    // 3. OPEN PALM: All extended
     if (isExtended.every(e => e)) return 'OPEN_PALM'
-    
-    // 4. PEACE: Index + Middle extended, Ring + Pinky curled
     if (isExtended[1] && isExtended[2] && !isExtended[3] && !isExtended[4]) return 'PEACE'
-    
-    // 5. OK: Thumb + Index touching (Pinch check above, but OK implies others extended)
-    // Refine Pinch: If others extended -> OK
-    // Let's relax: Pinch wins if very close, but check logic
-    // OK explicitly: Thumb-Index close AND Middle/Ring/Pinky extended
     if (distThumbIndex < 0.08 && isExtended[2] && isExtended[3] && isExtended[4]) return 'OK'
     
     return 'NONE'
   }
 
   const handleResult = (result) => {
-    const { landmarks, worldLandmarks } = result
+    const { landmarks } = result
     
     if (landmarks && landmarks.length > 0) {
-      // 1. Process Gestures for Primary Hand (Index 0)
       const primaryHand = landmarks[0]
       const gesture = detectGestures(primaryHand)
       
-      // Calculate cursor position from primary hand
       const wrist = primaryHand[0]
       const indexMCP = primaryHand[5]
       const pinkyMCP = primaryHand[17]
       const centerX = (wrist.x + indexMCP.x + pinkyMCP.x) / 3
       const centerY = (wrist.y + indexMCP.y + pinkyMCP.y) / 3
       
-      // Map to screen coordinates (-1 to 1) 
-      // X is mirrored
       const targetX = (1 - centerX) * 2 - 1 
       const targetY = -(centerY * 2 - 1) 
       
-      // Smoothing (Simple LERP)
-      // Reduced smoothing here to minimize latency (we smooth visually in cursor)
       const smoothFactor = 0.5 
-      // Initialize if needed (or just use 0,0 default)
-      if (!window.lastHandPos) window.lastHandPos = { x: targetX, y: targetY }
+      const x = lastHandPosRef.current.x + (targetX - lastHandPosRef.current.x) * smoothFactor
+      const y = lastHandPosRef.current.y + (targetY - lastHandPosRef.current.y) * smoothFactor
       
-      const x = window.lastHandPos.x + (targetX - window.lastHandPos.x) * smoothFactor
-      const y = window.lastHandPos.y + (targetY - window.lastHandPos.y) * smoothFactor
+      lastHandPosRef.current = { x, y }
       
-      window.lastHandPos = { x, y }
-      
-      // --- SWIPE DETECTION ---
+      // Swipe Detection
       const currentTime = Date.now()
-      if (!window.lastSwipeTime) window.lastSwipeTime = 0
       
-      // Calculate Velocity
-      if (window.lastX !== undefined) {
-          const deltaX = x - window.lastX
-          // Time delta approx 33ms (30fps)
-          // Simplified velocity: movement per frame
-          
-          const swipeThreshold = 0.15 // Adjust sensitivity
-          const cooldown = 500 // 500ms between swipes
-          
-          if (currentTime - window.lastSwipeTime > cooldown) {
-              if (deltaX > swipeThreshold) {
-                  // Swipe RIGHT (Next)
-                  console.log("SWIPE RIGHT")
-                  useStore.getState().nextModel()
-                  window.lastSwipeTime = currentTime 
-              } else if (deltaX < -swipeThreshold) {
-                  // Swipe LEFT (Prev)
-                  console.log("SWIPE LEFT")
-                  useStore.getState().prevModel()
-                  window.lastSwipeTime = currentTime
-              }
+      if (lastXRef.current !== null) {
+        const deltaX = x - lastXRef.current
+        const swipeThreshold = 0.15
+        const cooldown = 500
+        
+        if (currentTime - lastSwipeTimeRef.current > cooldown) {
+          if (deltaX > swipeThreshold) {
+            console.log("SWIPE RIGHT")
+            useStore.getState().nextModel()
+            lastSwipeTimeRef.current = currentTime 
+          } else if (deltaX < -swipeThreshold) {
+            console.log("SWIPE LEFT")
+            useStore.getState().prevModel()
+            lastSwipeTimeRef.current = currentTime
           }
+        }
       }
-      window.lastX = x
+      lastXRef.current = x
       
       const payload = {
         handPresent: true,
@@ -199,91 +166,81 @@ export default function HandManager() {
         gesture
       }
       
-      // 2. Zoom Detection (Two Hands)
+      // Zoom Detection (Two Hands)
       if (landmarks.length >= 2) {
-         const hand1 = landmarks[0][0] // Base of hand 1
-         const hand2 = landmarks[1][0] // Base of hand 2
-         
-         // Calculate distance
-         const separation = Math.hypot(hand1.x - hand2.x, hand1.y - hand2.y)
-         // Map separation to zoom (0.1 separation -> 1.0 zoom, 0.8 separation -> 3.0 zoom?)
-         // Simple linear mapping
-         const zoom = Math.max(0.5, Math.min(3.0, separation * 4))
-         
-         payload.zoomLevel = zoom
-         payload.gesture = 'ZOOM' // Override gesture state if zooming? Or separate? 
-         // Let's keep specific hand gestures for primary but updates zoom too.
-         // Or if separation changes rapidly? Just update zoom state.
+        const hand1 = landmarks[0][0]
+        const hand2 = landmarks[1][0]
+        const separation = Math.hypot(hand1.x - hand2.x, hand1.y - hand2.y)
+        const zoom = Math.max(0.5, Math.min(3.0, separation * 4))
+        
+        payload.zoomLevel = zoom
+        payload.gesture = 'ZOOM'
       } else {
-         payload.zoomLevel = 1.0 // Reset zoom if only one hand? Or keep last? 
-         // Let's reset for now to be clear
+        payload.zoomLevel = 1.0
       }
       
       updateHand(payload)
       
-      // 3. Debug Drawing
-       if (debugMode && canvasRef.current && webcamRef.current?.video) {
-         drawDebug(landmarks)
-       }
+      if (debugMode && canvasRef.current && webcamRef.current?.video) {
+        drawDebug(landmarks)
+      }
        
     } else {
-       setHandPresent(false)
-       if (debugMode && canvasRef.current) {
-          const ctx = canvasRef.current.getContext('2d')
-          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-       }
+      setHandPresent(false)
+      if (debugMode && canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d')
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+      }
     }
   }
 
   const drawDebug = (multiLandmarks) => {
-      const video = webcamRef.current.video
-      const canvas = canvasRef.current
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const video = webcamRef.current.video
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    
+    ctx.save()
+    ctx.scale(-1, 1)
+    ctx.translate(-canvas.width, 0)
+    
+    multiLandmarks.forEach((landmarks, index) => {
+      ctx.fillStyle = index === 0 ? '#00f3ff' : '#ff00ff'
       
-      ctx.save()
-      ctx.scale(-1, 1) // Mirror
-      ctx.translate(-canvas.width, 0)
-      
-      multiLandmarks.forEach((landmarks, index) => {
-          ctx.beginPath()
-          ctx.lineWidth = 2
-          ctx.strokeStyle = index === 0 ? '#00f3ff' : '#ff00ff'
-          ctx.fillStyle = index === 0 ? '#00f3ff' : '#ff00ff'
-          
-          for (const point of landmarks) {
-              ctx.beginPath()
-              ctx.arc(point.x * canvas.width, point.y * canvas.height, 4, 0, 2 * Math.PI)
-              ctx.fill()
-          }
-      })
-      
-      ctx.restore()
+      for (const point of landmarks) {
+        ctx.beginPath()
+        ctx.arc(point.x * canvas.width, point.y * canvas.height, 4, 0, 2 * Math.PI)
+        ctx.fill()
+      }
+    })
+    
+    ctx.restore()
   }
 
   return (
     <div className={`absolute inset-0 z-50 pointer-events-none flex items-center justify-center transition-opacity duration-500 ${debugMode ? 'opacity-100' : 'opacity-0'}`}>
-       <div className="relative border border-cyber-cyan/30 rounded-lg overflow-hidden backdrop-blur-sm bg-black/50">
-          <Webcam
-            ref={webcamRef}
-            width={640}
-            height={480}
-            mirrored={true}
-            screenshotFormat="image/jpeg"
-            videoConstraints={{
-                width: 640,
-                height: 480,
-                facingMode: "user"
-            }}
-            className="opacity-80"
-          />
-          <canvas 
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full transform -scale-x-100" // Mirror canvas via CSS to match mirrored video
-          />
-       </div>
+      <div className="relative border border-cyber-cyan/30 rounded-lg overflow-hidden backdrop-blur-sm bg-black/50">
+        <Webcam
+          ref={webcamRef}
+          width={640}
+          height={480}
+          mirrored={true}
+          screenshotFormat="image/jpeg"
+          onUserMedia={onUserMedia}
+          videoConstraints={{
+            width: 640,
+            height: 480,
+            facingMode: "user"
+          }}
+          className="opacity-80"
+        />
+        <canvas 
+          ref={canvasRef}
+          className="absolute inset-0 w-full h-full transform -scale-x-100"
+        />
+      </div>
     </div>
   )
 }
