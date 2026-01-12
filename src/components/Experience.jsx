@@ -107,8 +107,10 @@ export default function Experience() {
           const intersects = raycaster.intersectObject(groupRef.current, true)
           
           if (intersects.length > 0) {
-            console.log("CLICK DETECTED (3D) - HIT OBJECT")
+            console.log("CLICK DETECTED (3D) - HIT:", intersects[0].object.name || intersects[0].object.type)
             useStore.getState().setPortfolioOpen(true)
+          } else {
+            console.log("CLICK DETECTED (3D) - MISSED (no object hit)")
           }
         }
         pinchStartRef.current = null

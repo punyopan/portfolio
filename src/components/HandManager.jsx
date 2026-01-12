@@ -13,6 +13,11 @@ export default function HandManager() {
   const lastHandPosRef = useRef({ x: 0, y: 0 })
   const lastSwipeTimeRef = useRef(0)
   const lastXRef = useRef(null)
+  const lastFrameTimeRef = useRef(null)
+  
+  // Smart swipe recovery system
+  const swipeStartPosRef = useRef(null) // Position where current swipe gesture started
+  const swipeDirectionRef = useRef(null) // 'left' | 'right' | null - last swipe direction
   
   const [isVideoReady, setIsVideoReady] = useState(false)
   
@@ -107,11 +112,10 @@ export default function HandManager() {
     
     const distThumbIndex = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y)
     
-    if (distThumbIndex < 0.05) return 'PINCH'
+    if (distThumbIndex < 0.05) return 'PINCH' // Tighter threshold for less false positives
     if (isExtended.every(e => !e)) return 'FIST'
     if (isExtended.every(e => e)) return 'OPEN_PALM'
     if (isExtended[1] && isExtended[2] && !isExtended[3] && !isExtended[4]) return 'PEACE'
-    if (distThumbIndex < 0.08 && isExtended[2] && isExtended[3] && isExtended[4]) return 'OK'
     
     return 'NONE'
   }
@@ -132,32 +136,75 @@ export default function HandManager() {
       const targetX = (1 - centerX) * 2 - 1 
       const targetY = -(centerY * 2 - 1) 
       
-      const smoothFactor = 0.5 
+      const smoothFactor = 0.3 // Lower = more smoothing, less jitter
       const x = lastHandPosRef.current.x + (targetX - lastHandPosRef.current.x) * smoothFactor
       const y = lastHandPosRef.current.y + (targetY - lastHandPosRef.current.y) * smoothFactor
       
       lastHandPosRef.current = { x, y }
       
-      // Swipe Detection
+      // SMART SWIPE DETECTION with Position-Based Recovery
       const currentTime = Date.now()
+      const distanceThreshold = 0.2
+      const velocityThreshold = 0.006
+      const cooldown = 400
+      const recoveryDistance = 0.15 // Must return this close to start position
       
+      // Calculate velocity
+      const timeDelta = lastFrameTimeRef.current ? currentTime - lastFrameTimeRef.current : 33
+      lastFrameTimeRef.current = currentTime
+      
+      const cooldownPassed = currentTime - lastSwipeTimeRef.current > cooldown
+      
+      // Track start of movement (when we first see significant velocity)
       if (lastXRef.current !== null) {
-        const deltaX = x - lastXRef.current
-        const swipeThreshold = 0.15
-        const cooldown = 500
+        const instantDelta = x - lastXRef.current
+        const instantVelocity = Math.abs(instantDelta) / Math.max(timeDelta, 1)
         
-        if (currentTime - lastSwipeTimeRef.current > cooldown) {
-          if (deltaX > swipeThreshold) {
-            console.log("SWIPE RIGHT")
-            useStore.getState().nextModel()
-            lastSwipeTimeRef.current = currentTime 
-          } else if (deltaX < -swipeThreshold) {
-            console.log("SWIPE LEFT")
-            useStore.getState().prevModel()
+        // If we're moving fast and don't have a start position, record it
+        if (instantVelocity > 0.003 && swipeStartPosRef.current === null) {
+          swipeStartPosRef.current = lastXRef.current
+          console.log(`SWIPE START recorded at: ${swipeStartPosRef.current.toFixed(2)}`)
+        }
+      }
+      
+      // Check recovery: Did we return near the start position?
+      if (swipeStartPosRef.current !== null && swipeDirectionRef.current !== null) {
+        const distFromStart = Math.abs(x - swipeStartPosRef.current)
+        if (distFromStart < recoveryDistance) {
+          console.log(`RECOVERY COMPLETE - returned to start zone`)
+          swipeDirectionRef.current = null
+          swipeStartPosRef.current = null
+        }
+      }
+      
+      // Swipe detection
+      if (swipeStartPosRef.current !== null && cooldownPassed && gesture === 'OPEN_PALM') {
+        const deltaFromStart = x - swipeStartPosRef.current
+        const velocity = Math.abs(deltaFromStart) / Math.max(timeDelta, 1)
+        
+        const isFarEnough = Math.abs(deltaFromStart) > distanceThreshold
+        const isFastEnough = velocity > velocityThreshold
+        
+        // Can only swipe if NOT same direction as last swipe (or recovered)
+        if (isFarEnough && isFastEnough) {
+          const direction = deltaFromStart > 0 ? 'right' : 'left'
+          
+          if (swipeDirectionRef.current !== direction) {
+            if (direction === 'right') {
+              console.log(`SWIPE LEFT (from ${swipeStartPosRef.current.toFixed(2)} to ${x.toFixed(2)})`)
+              useStore.getState().prevModel()
+            } else {
+              console.log(`SWIPE RIGHT (from ${swipeStartPosRef.current.toFixed(2)} to ${x.toFixed(2)})`)
+              useStore.getState().nextModel()
+            }
             lastSwipeTimeRef.current = currentTime
+            swipeDirectionRef.current = direction
+            // Keep swipeStartPosRef so we know where to return to
           }
         }
       }
+      
+      // Update baseline for velocity calculation
       lastXRef.current = x
       
       const payload = {

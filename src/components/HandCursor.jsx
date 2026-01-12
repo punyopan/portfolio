@@ -21,7 +21,8 @@ export default function HandCursor() {
     
     const unsub = useStore.subscribe(state => {
         if (!state.handPresent) {
-            if (cursorRef.current) cursorRef.current.style.opacity = 0
+            // Fade out slowly instead of instant hide
+            if (cursorRef.current) cursorRef.current.style.opacity = 0.3
             return
         }
         
