@@ -132,13 +132,18 @@ export default function Experience() {
     groupRef.current.position.lerp(targetPos.current, 0.08)
   })
 
+  // Performance settings
+  const lowPerfActive = useStore((s) => s.lowPerfActive)
+  const peaceSparkleCount = lowPerfActive ? 50 : 200
+  const bloomIntensity = lowPerfActive ? 0.8 : 1.5
+
   return (
     <>
       <GalaxyEnvironment />
       
       {gesture === 'PEACE' && (
         <Sparkles 
-          count={200} 
+          count={peaceSparkleCount} 
           scale={[10, 2, 10]} 
           size={6} 
           speed={2} 
@@ -169,10 +174,15 @@ export default function Experience() {
       
       <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
       
+      {/* Performance-aware post-processing */}
       <EffectComposer disableNormalPass>
-        <Bloom luminanceThreshold={0.2} mipmapBlur intensity={1.5} radius={0.6} />
-        <ChromaticAberration offset={[0.002, 0.002]} />
-        <Noise opacity={0.05} blendFunction={BlendFunction.OVERLAY} />
+        <Bloom luminanceThreshold={0.2} mipmapBlur intensity={bloomIntensity} radius={0.6} />
+        {!lowPerfActive && (
+          <>
+            <ChromaticAberration offset={[0.002, 0.002]} />
+            <Noise opacity={0.05} blendFunction={BlendFunction.OVERLAY} />
+          </>
+        )}
       </EffectComposer>
     </>
   )

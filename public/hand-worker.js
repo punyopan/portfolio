@@ -4,12 +4,12 @@ importScripts('/libs/mediapipe/vision_bundle_shim.js');
 let handLandmarker = null;
 
 self.onmessage = async (event) => {
-  const { action, payload } = event.data;
+  const { action, payload, lowPerf } = event.data;
 
   switch (action) {
     case 'init':
         try {
-            await initializeLandmarker();
+            await initializeLandmarker(lowPerf);
         } catch(e) {
             self.postMessage({ type: 'error', error: e.message });
         }
@@ -20,7 +20,7 @@ self.onmessage = async (event) => {
   }
 };
 
-async function initializeLandmarker() {
+async function initializeLandmarker(lowPerf = false) {
     // Access globals exposed by the bundle
     // Check both self and the shimmed exports
     const VisionModule = self.vision || (self.exports ? self.exports : self);
@@ -33,18 +33,20 @@ async function initializeLandmarker() {
 
     const vision = await FilesetResolver.forVisionTasks("/libs/mediapipe/wasm");
     
+    // Low-perf mode: use CPU delegate and single hand for better performance
     handLandmarker = await HandLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-        delegate: "GPU"
+        delegate: lowPerf ? "CPU" : "GPU"
       },
       runningMode: "VIDEO",
-      numHands: 2,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.4,
-      minTrackingConfidence: 0.4 // Lowered for better tracking during fast movement
+      numHands: lowPerf ? 1 : 2,
+      minHandDetectionConfidence: lowPerf ? 0.6 : 0.5,
+      minHandPresenceConfidence: lowPerf ? 0.5 : 0.4,
+      minTrackingConfidence: lowPerf ? 0.5 : 0.4
     });
     
+    console.log(`⚡ MediaPipe initialized (${lowPerf ? 'LOW-PERF: CPU, 1 hand' : 'HIGH-PERF: GPU, 2 hands'})`);
     self.postMessage({ type: 'ready' });
 }
 

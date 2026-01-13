@@ -8,9 +8,13 @@ import PortfolioPopup from './components/PortfolioPopup'
 import CameraError from './components/CameraError'
 import NavigationButtons from './components/NavigationButtons'
 import { useStore } from './store'
+import { usePerformance } from './hooks/usePerformance'
 
 function App() {
   const systemStatus = useStore((state) => state.systemStatus)
+  
+  // Enable FPS monitoring and auto-detection
+  usePerformance()
   
   return (
     <div className="w-screen h-screen bg-cyber-bg relative overflow-hidden">

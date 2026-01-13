@@ -22,6 +22,14 @@ export const useStore = create((set) => ({
   errorMessage: null,
   setSystemStatus: (status, msg = null) => set({ systemStatus: status, errorMessage: msg }),
 
+  // Performance settings
+  performanceMode: 'auto', // 'auto' | 'high' | 'low'
+  lowPerfActive: false,    // Actual current performance state
+  currentFps: 60,          // Current FPS for display
+  setPerformanceMode: (mode) => set({ performanceMode: mode }),
+  setLowPerfActive: (active) => set({ lowPerfActive: active }),
+  setCurrentFps: (fps) => set({ currentFps: fps }),
+
   // Update all state at once to minimize re-renders if needed
   updateHand: (data) => set((state) => ({ ...state, ...data })),
   

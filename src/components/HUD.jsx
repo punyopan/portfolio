@@ -10,6 +10,26 @@ export default function HUD() {
   
   const systemStatus = useStore((state) => state.systemStatus)
   const errorMessage = useStore((state) => state.errorMessage)
+  
+  // Performance state
+  const performanceMode = useStore((state) => state.performanceMode)
+  const lowPerfActive = useStore((state) => state.lowPerfActive)
+  const currentFps = useStore((state) => state.currentFps)
+  const setPerformanceMode = useStore((state) => state.setPerformanceMode)
+  
+  // Cycle through performance modes
+  const cyclePerfMode = () => {
+    const modes = ['auto', 'high', 'low']
+    const currentIndex = modes.indexOf(performanceMode)
+    const nextMode = modes[(currentIndex + 1) % modes.length]
+    setPerformanceMode(nextMode)
+  }
+  
+  const perfModeLabel = {
+    auto: 'AUTO',
+    high: 'HIGH',
+    low: 'LOW'
+  }
 
   return (
     <div className="absolute inset-0 pointer-events-none p-8 flex flex-col justify-between z-10">
@@ -41,8 +61,14 @@ export default function HUD() {
         
         <div className="glass-panel p-2 flex gap-4">
              <div className="text-right font-mono text-xs text-gray-400">
-                <span className="block text-neon-cyan">CPU :: OPTIMAL</span>
-                <span className="block">MEM :: 34%</span>
+                <span className={`block ${lowPerfActive ? 'text-yellow-400' : 'text-neon-cyan'}`}>
+                  PERF :: {lowPerfActive ? 'ECO' : 'MAX'}
+                </span>
+                {debugMode && (
+                  <span className={`block ${currentFps < 30 ? 'text-red-400' : currentFps < 50 ? 'text-yellow-400' : 'text-green-400'}`}>
+                    FPS :: {currentFps}
+                  </span>
+                )}
             </div>
         </div>
       </header>
@@ -64,6 +90,18 @@ export default function HUD() {
         </div>
         
         <div className="flex flex-col items-end gap-2">
+             {/* Performance Mode Toggle */}
+             <button 
+                onClick={() => cyclePerfMode()}
+                className={`pointer-events-auto px-4 py-2 font-mono text-xs tracking-widest border transition-all duration-300 ${
+                    lowPerfActive 
+                    ? 'bg-yellow-500/20 border-yellow-500 text-yellow-400 shadow-[0_0_15px_rgba(234,179,8,0.3)]' 
+                    : 'bg-green-500/20 border-green-500 text-green-400 shadow-[0_0_15px_rgba(34,197,94,0.3)]'
+                }`}
+             >
+                ⚡ {perfModeLabel[performanceMode]}
+             </button>
+             
              <button 
                 onClick={() => toggleDebug()}
                 className={`pointer-events-auto px-4 py-2 font-mono text-xs tracking-widest border transition-all duration-300 ${

@@ -19,12 +19,16 @@ export default function HandManager() {
   const swipeStartPosRef = useRef(null) // Position where current swipe gesture started
   const swipeDirectionRef = useRef(null) // 'left' | 'right' | null - last swipe direction
   
+  // Performance throttling
+  const frameCountRef = useRef(0)
+  
   const [isVideoReady, setIsVideoReady] = useState(false)
   
   const updateHand = useStore((state) => state.updateHand)
   const setHandPresent = useStore((state) => state.setHandPresent)
   const setSystemStatus = useStore((state) => state.setSystemStatus)
   const debugMode = useStore((state) => state.debugMode)
+  const lowPerfActive = useStore((state) => state.lowPerfActive)
 
   useEffect(() => {
     try {
@@ -51,7 +55,8 @@ export default function HandManager() {
       }
       
       setSystemStatus('INITIALIZING')
-      workerRef.current.postMessage({ action: 'init' })
+      // Pass lowPerfActive to worker for CPU fallback and reduced hands
+      workerRef.current.postMessage({ action: 'init', lowPerf: lowPerfActive })
 
     } catch (err) {
       setSystemStatus('ERROR', "Initialization Failed: " + err.message)
@@ -61,10 +66,20 @@ export default function HandManager() {
       if (workerRef.current) workerRef.current.terminate()
       if (requestRef.current) cancelAnimationFrame(requestRef.current)
     }
-  }, [])
+  }, [lowPerfActive]) // Re-init worker when performance mode changes
 
   const detectFrame = () => {
     const webcam = webcamRef.current
+    
+    // Frame throttling in low-perf mode - skip every 2nd frame
+    frameCountRef.current++
+    const lowPerf = useStore.getState().lowPerfActive
+    const FRAME_SKIP = lowPerf ? 2 : 1
+    
+    if (frameCountRef.current % FRAME_SKIP !== 0) {
+      requestRef.current = requestAnimationFrame(detectFrame)
+      return
+    }
     
     if (webcam && webcam.video && webcam.video.readyState === 4) {
       const video = webcam.video
@@ -266,19 +281,23 @@ export default function HandManager() {
     ctx.restore()
   }
 
+  // Dynamic resolution based on performance mode
+  const videoWidth = lowPerfActive ? 320 : 640
+  const videoHeight = lowPerfActive ? 240 : 480
+
   return (
     <div className={`absolute inset-0 z-50 pointer-events-none flex items-center justify-center transition-opacity duration-500 ${debugMode ? 'opacity-100' : 'opacity-0'}`}>
       <div className="relative border border-cyber-cyan/30 rounded-lg overflow-hidden backdrop-blur-sm bg-black/50">
         <Webcam
           ref={webcamRef}
-          width={640}
-          height={480}
+          width={videoWidth}
+          height={videoHeight}
           mirrored={true}
           screenshotFormat="image/jpeg"
           onUserMedia={onUserMedia}
           videoConstraints={{
-            width: 640,
-            height: 480,
+            width: videoWidth,
+            height: videoHeight,
             facingMode: "user"
           }}
           className="opacity-80"
